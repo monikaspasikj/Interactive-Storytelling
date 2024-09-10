@@ -1,5 +1,5 @@
 # Use the official Python image from the Docker Hub
-FROM python:3.10-slim
+FROM python:3.10
 
 # Set environment variables to non-interactive mode (avoid prompts during package installation)
 ENV DEBIAN_FRONTEND=noninteractive
@@ -27,6 +27,9 @@ RUN pip install pyautogen openai kaggle pymilvus transformers torch whisper gtts
 
 # Copy the .env file to the container
 COPY .env /app/.env
+
+# Ensure the Interactive_Storytelling.py file is in the container
+COPY Interactive_Storytelling.py /app/Interactive_Storytelling.py
 
 # Expose the Streamlit port
 EXPOSE 8501

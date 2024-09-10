@@ -49,7 +49,9 @@ fields = [
     FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=768)
 ]
 
-connections.connect("default", host="localhost", port="19530")
+# Connect to Milvus using environment variable for host
+connections.connect("default", host=os.getenv("MILVUS_HOST", "milvus-standalone"), port="19530")
+
 schema = CollectionSchema(fields, description="Embeddings на приказните")
 collection_name = "children_stories"
 collection = Collection(name=collection_name, schema=schema)
