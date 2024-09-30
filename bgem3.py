@@ -1,16 +1,14 @@
-from pymilvus.model.hybrid import BGEM3EmbeddingFunction
-from pymilvus import (
-    connections,
-    utility,
-    FieldSchema, CollectionSchema, DataType,
-    Collection
-)
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 from os import listdir
 from os.path import isfile, join
 
+# Initialize Qdrant client
+client = QdrantClient(host="localhost", port=6333)
 
+# Function to read PDFs
 onlyfiles = [f for f in listdir("./pdf_files") if isfile(join("./pdf_files/", f))]
 pagesText = []
 
@@ -20,83 +18,47 @@ for file in onlyfiles:
     except PdfReadError:
         print("invalid PDF file")
     else:
-        for page in reader.pages: 
-            text = page.extract_text() 
-            # print(text)
-            pagesText.append(text.replace("\n", " ")) 
-
+        for page in reader.pages:
+            text = page.extract_text()
+            pagesText.append(text.replace("\n", " "))
 
 print(pagesText)
 
-bge_m3_ef = BGEM3EmbeddingFunction(
-    model_name='BAAI/bge-m3', # Specify the model name
-    device='cuda:0', # Specify the device to use, e.g., 'cpu' or 'cuda:0'
-    use_fp16=False # Specify whether to use fp16. Set to `False` if `device` is `cpu`.
-)
-
-
-connections.connect("default", host="127.0.0.1", port="19530")
-
-
-fields = [
-    FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
-    FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1024),
-    FieldSchema(name="index", dtype=DataType.INT64)
-]
-
-schema = CollectionSchema(fields, description="Document Embeddings Collection")
+# Create a new collection if it doesn't exist
 collection_name = "doc_embeddings"
-collection = Collection(name=collection_name, schema=schema)
-# utility.drop_collection(collection_name)
-
-if utility.has_collection(collection_name):
-    collection.release()
-
-
-if collection.has_index():
-    collection.drop_index()
-
-index_params = {
-    "index_type": "IVF_FLAT",  # Inverted File System
-    "metric_type": "L2",  # Euclidean distance
-    "params": {"nlist": 128}
-}
-
-collection.create_index("embedding", index_params)
-print("New index created successfully.")
-
-collection.load()
-
-docs_embeddings = bge_m3_ef.encode_documents(pagesText)
-
-print(docs_embeddings)
-entities= []
-
-for i in range(len(docs_embeddings["dense"])):
-    entities.append({"embedding": docs_embeddings["dense"][i], "index": i})
-
-insert_result = collection.insert(entities)
-
-collection.load()
-
-search_params = {
-    "metric_type": "L2",
-    "params": {"nprobe": 10}
-}
-
-queries = ["What are Spindles"]
-query_embeddings = bge_m3_ef.encode_queries(queries)  # Example: search with the first two embeddings
-result = collection.search(
-    query_embeddings['dense'], 
-    "embedding", 
-    search_params, 
-    limit=6, 
-    output_fields=["index"]
+client.recreate_collection(
+    collection_name=collection_name,
+    vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE),  # Adjust size if needed
 )
+
+# Generate document embeddings (replace this with your actual embedding generation method)
+# Assuming bge_m3_ef.encode_documents is a placeholder for your embedding generation
+docs_embeddings = []  # Replace this with your method to get embeddings
+
+# Insert documents into Qdrant
+for i, text in enumerate(pagesText):
+    embedding = ...  # Compute the embedding for the current document text
+    client.upload_records(
+        collection_name=collection_name,
+        records=[models.Record(
+            id=i,  # or some unique ID
+            vector=embedding,
+            payload={"text": text}  # or other metadata
+        )]
+    )
+
+# Example search
+queries = ["What are Spindles"]
+query_embeddings = ...  # Compute embeddings for queries
+
+search_result = client.search(
+    collection_name=collection_name,
+    query_vector=query_embeddings,
+    limit=6,
+    with_payload=True  # To include payload in the results
+)
+
+for hit in search_result:
+    print(f"hit: {hit}, ")
 
 print(len(pagesText))
-
-for hits in result:
-    for hit in hits:
-        print(f"hit: {hit}, ")
-

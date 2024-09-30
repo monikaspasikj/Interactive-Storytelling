@@ -1,0 +1,32 @@
+version: '3.5'
+
+services:
+  qdrant:
+    container_name: qdrant
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/qdrant:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  app:
+    container_name: interactive_storytelling_app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    depends_on:
+      - qdrant
+
+networks:
+  default:
+    name: qdrant_network
