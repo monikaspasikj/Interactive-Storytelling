@@ -6,12 +6,17 @@ def main():
     
     # Input for the user to enter their request
     user_input = st.text_input("Enter a story prompt or request:")
-
+    
     if st.button("Tell me a story"):
-        # Send the request to the child_user_agent
-        response = child_user_agent.request_story(user_input)
-        # Display the story from the storytelling_agent
-        st.write(response)
+        if user_input:
+            try:
+                # Use LangChain to fetch the story based on user input
+                response = storytelling_agent.request_story(user_input)
+                st.write(response)
+            except Exception as e:
+                st.error(f"Error fetching story: {e}")
+        else:
+            st.warning("Please enter a prompt or request.")
 
 if __name__ == "__main__":
     main()

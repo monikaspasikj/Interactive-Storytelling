@@ -1,64 +1,46 @@
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
+from langchain.embeddings import HuggingFaceEmbeddings
 from os import listdir
 from os.path import isfile, join
 
 # Initialize Qdrant client
 client = QdrantClient(host="localhost", port=6333)
 
-# Function to read PDFs
+# Function to read PDFs and extract text
 onlyfiles = [f for f in listdir("./pdf_files") if isfile(join("./pdf_files/", f))]
 pagesText = []
 
+# Process each PDF and extract text
 for file in onlyfiles:
-    try:
-        reader = PdfReader(join("./pdf_files/", file))
-    except PdfReadError:
-        print("invalid PDF file")
-    else:
-        for page in reader.pages:
-            text = page.extract_text()
-            pagesText.append(text.replace("\n", " "))
+    reader = PdfReader(join("./pdf_files/", file))
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            pagesText.append(text.replace("\n", " "))  # Normalize newlines
 
-print(pagesText)
+# Initialize LangChain embeddings
+embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 # Create a new collection if it doesn't exist
-collection_name = "doc_embeddings"
 client.recreate_collection(
-    collection_name=collection_name,
-    vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE),  # Adjust size if needed
+    collection_name="doc_embeddings",
+    vectors_config=models.VectorParams(size=embedder.embed_query("test").shape[0], distance=models.Distance.COSINE),
 )
 
-# Generate document embeddings (replace this with your actual embedding generation method)
-# Assuming bge_m3_ef.encode_documents is a placeholder for your embedding generation
-docs_embeddings = []  # Replace this with your method to get embeddings
+# Generate document embeddings and insert into Qdrant
+docs_embeddings = embedder.embed_documents(pagesText)
 
-# Insert documents into Qdrant
-for i, text in enumerate(pagesText):
-    embedding = ...  # Compute the embedding for the current document text
+for i, embedding in enumerate(docs_embeddings):
     client.upload_records(
-        collection_name=collection_name,
-        records=[models.Record(
-            id=i,  # or some unique ID
-            vector=embedding,
-            payload={"text": text}  # or other metadata
-        )]
+        collection_name="doc_embeddings",
+        records=[models.Record(id=i, vector=embedding, payload={"text": pagesText[i]})]
     )
 
-# Example search
-queries = ["What are Spindles"]
-query_embeddings = ...  # Compute embeddings for queries
-
-search_result = client.search(
-    collection_name=collection_name,
-    query_vector=query_embeddings,
-    limit=6,
-    with_payload=True  # To include payload in the results
-)
+# Search example
+query = "What are spindles"
+query_embedding = embedder.embed_query(query)
+search_result = client.search(collection_name="doc_embeddings", query_vector=query_embedding, limit=6, with_payload=True)
 
 for hit in search_result:
-    print(f"hit: {hit}, ")
-
-print(len(pagesText))
+    print(hit.payload['text'])

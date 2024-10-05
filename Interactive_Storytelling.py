@@ -2,26 +2,19 @@ import subprocess
 import os
 import autogen
 import pandas as pd
-from transformers import AutoTokenizer, AutoModel
-import torch
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import Qdrant
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-import numpy as np
-
-# Install qdrant-client
-# pip install qdrant-client
-
-# Initialize Qdrant client (in-memory for testing or persistent for production)
-
 
 # Load environment variables from .env file
 load_dotenv()
 
-qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=os.getenv("QDRANT_PORT", "6333"))  # In-memory for testing, CI/CD
-# OR for disk persistence:
-# qdrant_client = QdrantClient(path="path/to/db")
+qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=os.getenv("QDRANT_PORT", "6333"))
 
+# Initialize LangChain's embedding model
+embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 # Function to run shell commands (not needed in Docker setup)
 def run_shell_command(command):
@@ -46,28 +39,24 @@ child_user_agent = autogen.ConversableAgent(
     human_input_mode="ALWAYS",
 )
 
-# Load models
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-model = AutoModel.from_pretrained("bert-base-uncased")
-
-def get_text_embedding(text):
-    tokens = tokenizer(text, return_tensors='pt')
-    with torch.no_grad():
-        embeddings = model(**tokens).last_hidden_state.mean(dim=1)
-    return embeddings.numpy().flatten()
-
 # Define Qdrant collection schema and create collection
 qdrant_client.recreate_collection(
     collection_name="children_stories",
-    vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE),
+    vectors_config=models.VectorParams(size=embedder.embed_query("test").shape[0], distance=models.Distance.COSINE),
 )
 
-# Load and process data
-df = pd.read_csv('cleaned_merged_fairy_tales_without_eos.csv')
-embeddings = np.array(df['story_column'].apply(get_text_embedding).tolist())
+# Load and process data with additional error handling
+try:
+    df = pd.read_csv('cleaned_merged_fairy_tales_without_eos.csv', header=None, on_bad_lines='skip')
+    print(df.head())  # Debugging: Inspect the first few rows
+except pd.errors.ParserError as e:
+    print("Error parsing CSV file:", e)
 
-# Insert data into Qdrant collection
+# Generate embeddings for each story and insert into Qdrant
+embeddings = embedder.embed_documents(df[0].tolist())  # Assuming stories are in the first column
 payload = [{"story_id": i} for i in range(len(embeddings))]
+
+# Insert embeddings into Qdrant
 qdrant_client.upload_collection(
     collection_name="children_stories",
     vectors=embeddings,

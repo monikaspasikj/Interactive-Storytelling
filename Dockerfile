@@ -23,7 +23,8 @@ RUN apt-get update && \
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install additional Python dependencies
-RUN pip install pyautogen openai kaggle qdrant-client transformers torch whisper gtts streamlit python-dotenv scikit-learn
+RUN pip install pyautogen openai kaggle qdrant-client transformers torch whisper gtts streamlit python-dotenv scikit-learn \
+    langchain langchain-community sentence-transformers flaml[automl]
 
 # Copy the .env file to the container
 COPY .env /app/.env
