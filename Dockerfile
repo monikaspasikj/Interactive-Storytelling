@@ -7,8 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set the working directory
 WORKDIR /app
 
-# Copy all the contents of the current directory to /app in the container
-COPY . /app
+# Copy only the requirements file first, to cache dependencies
+COPY requirements.txt /app/requirements.txt
 
 # Install system dependencies
 RUN apt-get update && \
@@ -19,18 +19,19 @@ RUN apt-get update && \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies from requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies from requirements.txt first
+RUN pip install torch==2.4.1 --no-cache-dir
+RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
 # Install additional Python dependencies
-RUN pip install pyautogen openai kaggle qdrant-client transformers torch whisper gtts streamlit python-dotenv scikit-learn \
+RUN pip install pyautogen openai kaggle qdrant-client transformers whisper gtts streamlit python-dotenv scikit-learn \
     langchain langchain-community sentence-transformers flaml[automl]
+
+# Copy the rest of the application files into the container
+COPY . /app
 
 # Copy the .env file to the container
 COPY .env /app/.env
-
-# Ensure the Interactive_Storytelling.py file is in the container
-COPY Interactive_Storytelling.py /app/Interactive_Storytelling.py
 
 # Expose the Streamlit port
 EXPOSE 8501

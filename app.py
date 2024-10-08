@@ -1,18 +1,20 @@
 import streamlit as st
-from Interactive_Storytelling import storytelling_agent, child_user_agent
+from Interactive_Storytelling import generate_story  # Import the story generation function
 
 def main():
     st.title("Interactive Storytelling")
     
     # Input for the user to enter their request
     user_input = st.text_input("Enter a story prompt or request:")
-    
+
     if st.button("Tell me a story"):
         if user_input:
             try:
-                # Use LangChain to fetch the story based on user input
-                response = storytelling_agent.request_story(user_input)
-                st.write(response)
+                # Generate story using the function from Interactive_Storytelling.py
+                story = generate_story(user_input)
+                st.write(story)
+                # Debug: Print the generated story to console
+                print(f"Generated story: {story}")
             except Exception as e:
                 st.error(f"Error fetching story: {e}")
         else:
