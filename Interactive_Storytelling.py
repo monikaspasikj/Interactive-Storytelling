@@ -48,14 +48,17 @@ child_user_agent = autogen.ConversableAgent(
 def generate_story(prompt):
     """Simulate a conversation between the child agent and the storytelling agent."""
     try:
-        # Child sends the initial request (prompt)
+        # Send the prompt to the child agent
+        print(f"Child agent sent: {prompt}")
         child_user_agent.receive(prompt, sender=child_user_agent)
 
-        # Storytelling agent processes the prompt and generates the story
-        storytelling_response = storytelling_agent.receive(prompt, sender=storytelling_agent)
+        # Construct a prompt for the storytelling agent
+        storytelling_prompt = "Tell me a story about " + prompt  # Custom prompt for storytelling agent
 
-        # Debug: Print the interaction for troubleshooting
-        print(f"Child agent sent: {prompt}")
+        # Send the storytelling prompt to the storytelling agent
+        storytelling_response = storytelling_agent.receive(storytelling_prompt, sender=storytelling_agent)
+
+        # Debug: Check the response from the storytelling agent
         print(f"Storytelling agent received: {storytelling_response}")
 
         # Check if the response is None
@@ -66,43 +69,62 @@ def generate_story(prompt):
         if isinstance(storytelling_response, dict) and 'text' in storytelling_response:
             return storytelling_response['text']
         else:
-            return "Error occurred: Unexpected response format from the agent."
+            return f"Error occurred: Unexpected response format from the agent: {storytelling_response}"
 
     except Exception as e:
+        print(f"Exception occurred: {str(e)}")  # Debugging
         return f"Error occurred: {str(e)}"
 
-# Define Qdrant collection schema and create collection
-test_embedding = embedder.embed_query("test")
-if test_embedding is None:
-    raise ValueError("Failed to generate test embedding. Check the embedding model.")
-
-qdrant_client.recreate_collection(
-    collection_name="children_stories",
-    vectors_config=models.VectorParams(size=len(test_embedding), distance=models.Distance.COSINE),
-)
-
-# Load and process data with additional error handling
-try:
-    df = pd.read_csv('cleaned_merged_fairy_tales_without_eos.csv', header=None, on_bad_lines='skip')
-    if df is None or df.empty:
-        raise ValueError("Failed to load or empty CSV file. Please check the file.")
-    print(df.head())  # Debugging: Inspect the first few rows
-except pd.errors.ParserError as e:
-    print("Error parsing CSV file:", e)
-except ValueError as e:
-    print(f"Error: {e}")
-    df = None
-
-# Proceed only if the data was successfully loaded
-if df is not None:
-    # Generate embeddings for each story and insert into Qdrant
-    stories = df[0].tolist()  # Assuming stories are in the first column
-    embeddings = embedder.embed_documents(stories)
+# Preprocess the dataset from .txt format
+def preprocess_txt_dataset(file_path):
+    """Reads the .txt dataset and splits it into individual stories."""
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"The file {file_path} was not found.")
     
+    with open(file_path, 'r', encoding='utf-8') as file:
+        data = file.read()
+
+    # Assuming each story is separated by double newlines
+    stories = data.split('\n\n')
+
+    # Filter out any empty stories
+    stories = [story.strip() for story in stories if story.strip()]
+
+    if not stories:
+        raise ValueError("The dataset appears to be empty after preprocessing.")
+
+    return stories
+
+# Load the .txt dataset and preprocess it
+file_path = 'cleaned_merged_fairy_tales_without_eos.txt'
+try:
+    stories = preprocess_txt_dataset(file_path)
+except (FileNotFoundError, ValueError) as e:
+    print(f"Error: {e}")
+    stories = []
+
+# Ensure we have stories before proceeding
+if stories:
+    print(f"Loaded {len(stories)} stories from the dataset.")
+    
+    # Define Qdrant collection schema and create collection
+    test_embedding = embedder.embed_query("test")
+    if test_embedding is None:
+        raise ValueError("Failed to generate test embedding. Check the embedding model.")
+
+    qdrant_client.recreate_collection(
+        collection_name="children_stories",
+        vectors_config=models.VectorParams(size=len(test_embedding), distance=models.Distance.COSINE),
+    )
+
+    # Generate embeddings for each story and insert into Qdrant
+    embeddings = embedder.embed_documents(stories)
+
     if embeddings is None:
         raise ValueError("Failed to generate embeddings for the stories.")
 
-    payload = [{"story_id": i} for i in range(len(embeddings))]
+    payload = [{"story_id": i, "text": stories[i]} for i in range(len(embeddings))]
 
     # Insert embeddings into Qdrant
     qdrant_client.upload_collection(
@@ -110,5 +132,6 @@ if df is not None:
         vectors=embeddings,
         payload=payload,
     )
+    print("Embeddings successfully inserted into Qdrant.")
 else:
-    print("No data to process.")
+    print("No stories found to process.")
