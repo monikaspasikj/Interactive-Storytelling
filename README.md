@@ -1,7 +1,3 @@
-
-### Transkripcija.py
-The transcription code looks solid but make sure to check the paths where files are downloaded or saved, especially in Docker. You might need to adjust paths for file handling within Docker:
-
 ```python
 import whisper
 from gtts import gTTS
