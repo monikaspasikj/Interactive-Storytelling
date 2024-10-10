@@ -1,2 +1,15 @@
 numpy==1.26.4
-qdrant-client
+qdrant-client==1.11.3  # Ensure compatibility with your Qdrant version
+torch  # You can specify a version if needed, e.g., torch==2.0.1
+transformers  # Optionally specify a version if required
+streamlit  # Optionally specify a version if required
+gtts
+autogen
+pypdf
+python-dotenv
+scikit-learn
+langchain
+langchain-community  # Needed for LangChain community features
+huggingface-hub  # Optionally specify a version if required
+sentence-transformers  # Required for Hugging Face embedding models in LangChain
+flaml[automl]  # Required if using AutoML functionalities from FLAML

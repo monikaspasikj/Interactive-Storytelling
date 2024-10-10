@@ -1,4 +1,4 @@
-version: '3.5'
+version: '3.9'
 
 services:
   qdrant:
@@ -13,6 +13,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - qdrant_network
 
   app:
     container_name: interactive_storytelling_app
@@ -26,7 +28,9 @@ services:
       - QDRANT_PORT=6333
     depends_on:
       - qdrant
+    networks:
+      - qdrant_network
 
 networks:
-  default:
-    name: qdrant_network
+  qdrant_network:
+    driver: bridge
