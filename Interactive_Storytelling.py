@@ -1,7 +1,7 @@
-import subprocess
 import os
 import autogen
 import pandas as pd
+import streamlit as st
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Qdrant
 from langchain.llms import OpenAI
@@ -20,29 +20,21 @@ qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=os
 embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 # Initialize LangChain's LLM with OpenAI API
-llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4")
-
-# Function to run shell commands (optional for debugging, not needed in Docker)
-def run_shell_command(command):
-    result = subprocess.run(command, shell=True, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print("stdout:", result.stdout)
-    print("stderr:", result.stderr)
+llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-3.5-turbo")  # Use gpt-3.5-turbo for better access
 
 # Setup environment variables and packages
-print("AutoGen version:", autogen.__version__)
+st.write("AutoGen version:", autogen.__version__)
 
 # Initialize AutoGen agents using LangChain as LLM interface
 storytelling_agent = autogen.ConversableAgent(
     "storytelling_agent",
     system_message="You are a storytelling agent that can create and tell stories for children. Use your knowledge from children's books to craft engaging and creative stories.",
-    llm=llm,  # Use the LangChain LLM instance here
     human_input_mode="NEVER",
 )
 
 child_user_agent = autogen.ConversableAgent(
     "child_user_agent",
     system_message="You are a child who loves stories. You can ask the storytelling agent to tell you a story, or ask for a new one.",
-    llm=llm,  # Use the LangChain LLM instance here
     human_input_mode="ALWAYS",
 )
 
@@ -67,17 +59,17 @@ file_path = 'cleaned_merged_fairy_tales_without_eos.txt'
 try:
     stories = preprocess_txt_dataset(file_path)
 except (FileNotFoundError, ValueError) as e:
-    print(f"Error: {e}")
+    st.write(f"Error: {e}")
     stories = []
 
 # Ensure we have stories before proceeding
 if stories:
-    print(f"Loaded {len(stories)} stories from the dataset.")
+    st.write(f"Loaded {len(stories)} stories from the dataset.")
     
     # Define Qdrant collection schema and create collection
     qdrant_client.recreate_collection(
         collection_name="children_stories",
-        vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE),
+        vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
     )
 
     # Generate embeddings for each story using LangChain and insert into Qdrant
@@ -94,22 +86,23 @@ if stories:
         vectors=embeddings,
         payload=payload,
     )
-    print("Embeddings successfully inserted into Qdrant.")
+    st.write("Embeddings successfully inserted into Qdrant.")
 else:
-    print("No stories found to process.")
+    st.write("No stories found to process.")
 
-# Function to simulate the interaction and generate the story
-def generate_story(prompt):
+# Function to generate a story based on a user prompt
+def generate_story(story_prompt):
     """Simulate a conversation between the child agent and the storytelling agent."""
     try:
-        print(f"Child agent sent: {prompt}")
-        child_user_agent.receive(prompt, sender=child_user_agent)
+        # Receive the prompt from the child
+        child_user_agent.receive(story_prompt, recipient=storytelling_agent)
 
-        storytelling_prompt = f"Tell me a story about {prompt}"
-        print(f"Storytelling prompt: {storytelling_prompt}")
+        # Pass the story prompt to the storytelling agent
+        storytelling_prompt = f"Tell me a story about {story_prompt}"
+        st.write(f"Storytelling prompt: {storytelling_prompt}")
 
-        storytelling_response = storytelling_agent.receive(storytelling_prompt, sender=storytelling_agent)
-        print(f"Storytelling agent response: {storytelling_response}")
+        storytelling_response = storytelling_agent.receive(storytelling_prompt, recipient=storytelling_agent)
+        st.write(f"Storytelling agent response: {storytelling_response}")
 
         if storytelling_response is None:
             return "Error occurred: No response from the storytelling agent."
@@ -120,42 +113,48 @@ def generate_story(prompt):
             return f"Error occurred: Unexpected response format from the agent: {storytelling_response}"
 
     except Exception as e:
-        print(f"Exception occurred: {str(e)}")
+        st.write(f"Exception occurred: {str(e)}")
         return f"Error occurred: {str(e)}"
 
-# Direct story generation without agents (as a fallback)
-def generate_story_direct(prompt):
-    try:
-        storytelling_response = autogen.get_response(
-            query=prompt,
-            model="gpt-4",
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
+# Function to search for similar stories using Qdrant
+def search_story(search_query):
+    """Search for stories related to the user's query."""
+    search_embedding = embedder.embed_query(search_query)  # Create an embedding for the search query
+    results = qdrant_client.search(
+        collection_name="children_stories",
+        query_vector=search_embedding,
+        limit=5,
+    )
+    return results
 
-        if storytelling_response:
-            return storytelling_response
+# Streamlit UI to input story prompt and show the generated story
+st.title("Interactive Storytelling with LLM")
+
+# Input field for the user to type a story prompt
+user_story_prompt = st.text_input("Enter a story prompt or request:")
+
+# Generate story button
+if st.button("Generate Story"):
+    if user_story_prompt:
+        # Generate the story using the LLM based on the input prompt
+        story_response = generate_story(user_story_prompt)
+        st.write("Generated Story:")
+        st.write(story_response)
+    else:
+        st.write("Please type a prompt for the story.")
+
+# Input field for the user to search for a story
+search_query = st.text_input("Search for a story:")
+
+# Search story button
+if st.button("Search Story"):
+    if search_query:
+        search_results = search_story(search_query)
+        if search_results:
+            st.write("Search Results:")
+            for result in search_results:
+                st.write(f"Story ID: {result.id}, Score: {result.score}, Story: {result.payload['text']}")
         else:
-            return "Error: No response from the model."
-
-    except Exception as e:
-        return f"Error occurred during direct story generation: {str(e)}"
-
-# Example for searching similar stories using Qdrant
-search_embedding = embedder.embed_query("Example story to search")
-results = qdrant_client.search(
-    collection_name="children_stories",
-    query_vector=search_embedding,
-    limit=5,
-)
-
-# Print results from the search
-for result in results:
-    print(f"Story ID: {result.id}, Distance: {result.distance}")
-
-# Start communication between agents
-child_message = "Can you tell me a new story?"
-response_from_storytelling_agent = child_user_agent.send_message(child_message)
-
-# Storytelling agent responds with a story
-story = storytelling_agent.receive_message(response_from_storytelling_agent)
-print("Storytelling Agent:", story)
+            st.write("No matching stories found.")
+    else:
+        st.write("Please type a search query.")
