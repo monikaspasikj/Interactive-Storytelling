@@ -1,5 +1,5 @@
 import streamlit as st
-from Interactive_Storytelling import generate_story  # Import the story generation function
+from Interactive_Storytelling import generate_story, generate_story_direct
 
 def main():
     st.title("Interactive Storytelling")
@@ -10,26 +10,19 @@ def main():
     if st.button("Tell me a story"):
         if user_input:
             try:
-                # Debug: Print the user input for troubleshooting
-                print(f"User input: {user_input}")
-                
                 # Generate story using the function from Interactive_Storytelling.py
                 story = generate_story(user_input)
-                
-                if story:
-                    st.write(story)
-                    # Debug: Print the generated story to the console
-                    print(f"Generated story: {story}")
-                else:
-                    st.error("No story was generated. Please try again.")
+
+                # If the agent didn't respond, try direct story generation
+                if "No response from the storytelling agent" in story:
+                    story = generate_story_direct(user_input)
+
+                st.write(story)
+                print(f"Generated story: {story}")
             except Exception as e:
                 st.error(f"Error fetching story: {e}")
-                # Debug: Print the error message to the console
-                print(f"Error: {e}")
         else:
             st.warning("Please enter a prompt or request.")
-            # Debug: Inform user input was missing
-            print("Warning: No user input provided.")
 
 if __name__ == "__main__":
     main()
