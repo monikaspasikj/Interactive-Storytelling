@@ -27,6 +27,9 @@ RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 RUN pip install pyautogen openai kaggle qdrant-client transformers whisper gtts streamlit python-dotenv scikit-learn \
     langchain langchain-community sentence-transformers flaml[automl]
 
+# Install updated LangChain community packages
+RUN pip install -U langchain-community langchain-huggingface langchain-openai  # Added new dependencies
+
 # Copy the rest of the application files into the container
 COPY . /app
 
