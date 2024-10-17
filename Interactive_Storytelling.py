@@ -88,6 +88,7 @@ if not df_stories.empty:
         logger.error("Failed to generate embeddings.")
     else:
         logger.info(f"Generated {len(embeddings)} embeddings successfully.")
+        logger.debug(f"Embeddings: {embeddings[:5]}")  # Log the first 5 embeddings for inspection
 
     payload = [{"story_id": i, "title": df_stories['title'][i], "text": df_stories['text'][i]} for i in range(len(embeddings))]
 
@@ -108,7 +109,7 @@ def search_story(search_query):
     try:
         logger.debug(f"Searching for: {search_query}")
         search_embedding = embedder.embed_query(search_query)
-        logger.debug("Generated embedding for search query")
+        logger.debug(f"Search embedding for query '{search_query}': {search_embedding}")  # Log the embedding
 
         results = qdrant_client.search(
             collection_name="children_stories",
@@ -119,6 +120,8 @@ def search_story(search_query):
 
         if results:
             logger.info(f"Found {len(results)} results")
+            for result in results:
+                logger.debug(f"Result ID: {result.id}, Payload: {result.payload}")
             return results
         else:
             logger.info("No results found")
@@ -162,3 +165,19 @@ if st.button("Search Story", key="search_story_button"):
             st.write("No matching stories found.")
     else:
         st.write("Please type a search query.")
+    
+# Manual test query for debugging
+manual_search_query = st.text_input("Enter a manual search query for testing", key="manual_search")
+if st.button("Test Manual Search"):
+    logger.debug(f"Testing manual search for query: {manual_search_query}")
+    if manual_search_query:
+        manual_results = search_story(manual_search_query)
+        if manual_results:
+            for result in manual_results:
+                story_title = result.payload.get('title', 'No title found')
+                story_text = result.payload.get('text', 'No text found')
+                st.write(f"**Manual Search Result:** {result.id}\n**Title:** {story_title}\n**Story:** {story_text[:300]}...")
+        else:
+            st.write("No results found for the manual query.")
+    else:
+        st.write("Please enter a manual search query.")
