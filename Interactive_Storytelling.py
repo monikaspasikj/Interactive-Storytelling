@@ -23,9 +23,13 @@ qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=os
 logger.debug("Initialized Qdrant client.")
 
 # Check available collections in Qdrant
-collections = qdrant_client.get_collections()
-st.write("Available collections:", collections)
-logger.info(f"Available collections: {collections}")
+try:
+    collections = qdrant_client.get_collections()
+    st.write("Available collections:", collections)
+    logger.info(f"Available collections: {collections}")
+except Exception as e:
+    logger.error(f"Failed to retrieve collections: {e}")
+    st.error("Could not connect to Qdrant or retrieve collections.")
 
 # Initialize LangChain's embedding model
 embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
@@ -68,84 +72,96 @@ try:
     df_stories = preprocess_txt_dataset(file_path)
     st.write(f"Loaded {len(df_stories)} stories from the dataset.")
 except (FileNotFoundError, ValueError) as e:
-    st.write(f"Error: {e}")
+    st.error(f"Error: {e}")
     logger.error(e)
     df_stories = pd.DataFrame()
 
 if not df_stories.empty:
     st.write("Creating collection in Qdrant...")
-    qdrant_client.recreate_collection(
-        collection_name="children_stories",
-        vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
-    )
-    logger.info("Qdrant collection created.")
+
+    try:
+        qdrant_client.recreate_collection(
+            collection_name="children_stories",
+            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
+        )
+        logger.info("Qdrant collection created.")
+    except Exception as e:
+        logger.error(f"Failed to create collection in Qdrant: {e}")
+        st.error("Failed to create collection in Qdrant.")
 
     st.write("Generating embeddings for the stories...")
     embeddings = embedder.embed_documents(df_stories['text'].tolist())
 
     if embeddings is None:
-        st.write("Error: Failed to generate embeddings for the stories.")
+        st.error("Error: Failed to generate embeddings for the stories.")
         logger.error("Failed to generate embeddings.")
     else:
         logger.info(f"Generated {len(embeddings)} embeddings successfully.")
         logger.debug(f"Embeddings: {embeddings[:5]}")  # Log the first 5 embeddings for inspection
 
-    payload = [{"story_id": i, "title": df_stories['title'][i], "text": df_stories['text'][i]} for i in range(len(embeddings))]
+        payload = [{"story_id": i, "title": df_stories['title'][i], "text": df_stories['text'][i]} for i in range(len(embeddings))]
 
-    st.write("Inserting stories into Qdrant...")
-    qdrant_client.upload_collection(
-        collection_name="children_stories",
-        vectors=embeddings,
-        payload=payload,
-    )
-    logger.info("Embeddings and stories successfully inserted into Qdrant.")
-
+        try:
+            st.write("Inserting stories into Qdrant...")
+            qdrant_client.upload_collection(
+                collection_name="children_stories",
+                vectors=embeddings,
+                payload=payload,
+            )
+            logger.info("Embeddings and stories successfully inserted into Qdrant.")
+        except Exception as e:
+            logger.error(f"Failed to insert embeddings and stories: {e}")
+            st.error("Failed to insert embeddings and stories into Qdrant.")
 else:
     st.write("No stories found to process.")
 
-# Function to search for stories using Qdrant by title
+# Function to summarize a story using OpenAI
+def summarize_story(story_text):
+    """Use OpenAI to summarize the story text."""
+    try:
+        logger.debug("Summarizing the story using OpenAI.")
+        response = llm.call(f"Summarize this story: {story_text}")
+        if response and 'choices' in response and len(response['choices']) > 0:
+            summary = response['choices'][0]['text'].strip()  # Extract the summarized text
+            logger.debug(f"Generated summary: {summary}")
+            return summary
+        else:
+            logger.error(f"Unexpected response format: {response}")
+            return "Summary could not be generated."
+    except Exception as e:
+        logger.error(f"Error during summarization: {str(e)}")
+        return "Summary could not be generated."
+
+# Function to search for stories and return the summarized version of the story
 def search_story(search_query):
-    """Search for stories related to the user's query."""
+    """Search for stories related to the user's query and return summarized story."""
     try:
         logger.debug(f"Searching for: {search_query}")
         search_embedding = embedder.embed_query(search_query)
-        logger.debug(f"Search embedding for query '{search_query}': {search_embedding}")  # Log the embedding
+        logger.debug(f"Search embedding for query '{search_query}': {search_embedding}")
 
         results = qdrant_client.search(
             collection_name="children_stories",
             query_vector=search_embedding,
-            limit=5,
+            limit=1,  # Only return one story (top match)
         )
         logger.debug(f"Raw Qdrant search results: {results}")
 
-        if results:
-            logger.info(f"Found {len(results)} results")
-            for result in results:
-                logger.debug(f"Result ID: {result.id}, Payload: {result.payload}")
-            return results
+        if results and len(results) > 0:
+            result = results[0]  # Get the top result
+            story_text = result.payload.get('text', 'No text found')
+            summary = summarize_story(story_text)  # Generate a summary
+            return {"id": result.id, "title": result.payload.get('title', 'No title found'), "summary": summary}
         else:
             logger.info("No results found")
-            return []
+            return {}
 
     except Exception as e:
         logger.error(f"Error during search: {str(e)}")
-        return []
+        return {}
 
 # Streamlit UI to input story prompt and show the generated story
 st.title("Interactive Storytelling with LLM")
-
-# Input field for the user to type a story prompt
-user_story_prompt = st.text_input("Enter a story prompt or request:", key="story_prompt")
-
-# Generate story button
-if st.button("Generate Story", key="generate_story_button"):
-    if user_story_prompt:
-        # Simulate a conversation with the story agent (you can customize the function)
-        story_response = f"Simulated response for: {user_story_prompt}"
-        st.write("Generated Story:")
-        st.write(story_response)
-    else:
-        st.write("Please type a prompt for the story.")
 
 # Input field for the user to search for a story
 search_query = st.text_input("Search for a story:", key="search_story")
@@ -153,31 +169,12 @@ search_query = st.text_input("Search for a story:", key="search_story")
 # Search story button
 if st.button("Search Story", key="search_story_button"):
     if search_query:
-        search_results = search_story(search_query)
-        if search_results:
-            st.write("Search Results:")
-            for result in search_results:
-                # Ensure each result is displayed correctly
-                story_title = result.payload.get('title', 'No title found')
-                story_text = result.payload.get('text', 'No text found')
-                st.write(f"**Story ID:** {result.id}\n**Title:** {story_title}\n**Story:** {story_text[:300]}...")
+        with st.spinner("Searching for the best story..."):
+            search_result = search_story(search_query)
+        if search_result:
+            st.write("Search Result (Summarized):")
+            st.write(f"**Story ID:** {search_result['id']}\n**Title:** {search_result['title']}\n**Summary:** {search_result['summary']}")
         else:
-            st.write("No matching stories found.")
+            st.error("No matching stories found.")
     else:
-        st.write("Please type a search query.")
-    
-# Manual test query for debugging
-manual_search_query = st.text_input("Enter a manual search query for testing", key="manual_search")
-if st.button("Test Manual Search"):
-    logger.debug(f"Testing manual search for query: {manual_search_query}")
-    if manual_search_query:
-        manual_results = search_story(manual_search_query)
-        if manual_results:
-            for result in manual_results:
-                story_title = result.payload.get('title', 'No title found')
-                story_text = result.payload.get('text', 'No text found')
-                st.write(f"**Manual Search Result:** {result.id}\n**Title:** {story_title}\n**Story:** {story_text[:300]}...")
-        else:
-            st.write("No results found for the manual query.")
-    else:
-        st.write("Please enter a manual search query.")
+        st.warning("Please type a search query.")
