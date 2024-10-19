@@ -12,7 +12,7 @@ num_entities, dim = 3000, 768  # Updated dimension for embedding size
 client = QdrantClient(host="localhost", port=6333)
 
 # Initialize LangChain embeddings model
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")  # You can change to any other model
+embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")  # Change to any model as needed
 
 # 1. Check if collection exists, create if not
 collection_name = "hello_qdrant"
@@ -35,11 +35,8 @@ print(fmt.format("Start inserting entities"))
 rng = np.random.default_rng(seed=19530)
 entities = []
 for i in range(num_entities):
-    # Generate text to embed, this can be any meaningful text
     text = f"This is example text for entity {i}."
-    
-    # Get the embedding for the text using LangChain
-    embedding = embedding_model.embed(text)  # Replace with the actual method to generate embeddings
+    embedding = embedding_model.embed(text)
     
     entities.append({
         "id": str(i),
@@ -73,16 +70,16 @@ print(fmt.format("Start querying with random > 0.5"))
 query_result = client.query(collection_name=collection_name, expr="random > 0.5", limit=4)
 print(f"Query result:\n-{query_result}")
 
-# 5. Hybrid search (combine vector similarity and scalar filtering)
+# 5. Hybrid search
 print(fmt.format("Start hybrid searching with random > 0.5"))
 hybrid_result = client.search(collection_name=collection_name, query_vector=vectors_to_search, limit=3, expr="random > 0.5", with_payload=True)
 
 for hit in hybrid_result:
     print(f"hit: {hit}, random field: {hit.payload.get('random')}")
 
-# 6. Delete entities by ID (using Qdrant, this example uses a specific ID)
+# 6. Delete entities by ID
 print(fmt.format("Start deleting entities by ID"))
-ids_to_delete = [entities[0]["id"], entities[1]["id"]]  # Example IDs
+ids_to_delete = [entities[0]["id"], entities[1]["id"]]
 client.delete(collection_name=collection_name, ids=ids_to_delete)
 
 # Confirm deletion

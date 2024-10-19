@@ -1,15 +1,13 @@
 import os
 import logging
-import autogen
 import pandas as pd
 import streamlit as st
-from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Qdrant
-from langchain_openai import OpenAI
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from langchain.vectorstores import Qdrant
+from langchain.llms import OpenAI
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -19,13 +17,12 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Initialize Qdrant client
-qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=os.getenv("QDRANT_PORT", "6333"))
+qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=int(os.getenv("QDRANT_PORT", "6333")))
 logger.debug("Initialized Qdrant client.")
 
 # Check available collections in Qdrant
 try:
     collections = qdrant_client.get_collections()
-    st.write("Available collections:", collections)
     logger.info(f"Available collections: {collections}")
 except Exception as e:
     logger.error(f"Failed to retrieve collections: {e}")
@@ -97,84 +94,34 @@ if not df_stories.empty:
         logger.error("Failed to generate embeddings.")
     else:
         logger.info(f"Generated {len(embeddings)} embeddings successfully.")
-        logger.debug(f"Embeddings: {embeddings[:5]}")  # Log the first 5 embeddings for inspection
 
-        payload = [{"story_id": i, "title": df_stories['title'][i], "text": df_stories['text'][i]} for i in range(len(embeddings))]
-
-        try:
-            st.write("Inserting stories into Qdrant...")
-            qdrant_client.upload_collection(
-                collection_name="children_stories",
-                vectors=embeddings,
-                payload=payload,
-            )
-            logger.info("Embeddings and stories successfully inserted into Qdrant.")
-        except Exception as e:
-            logger.error(f"Failed to insert embeddings and stories: {e}")
-            st.error("Failed to insert embeddings and stories into Qdrant.")
-else:
-    st.write("No stories found to process.")
-
-# Function to summarize a story using OpenAI
-def summarize_story(story_text):
-    """Use OpenAI to summarize the story text."""
-    try:
-        logger.debug("Summarizing the story using OpenAI.")
-        response = llm.call(f"Summarize this story: {story_text}")
-        if response and 'choices' in response and len(response['choices']) > 0:
-            summary = response['choices'][0]['text'].strip()  # Extract the summarized text
-            logger.debug(f"Generated summary: {summary}")
-            return summary
-        else:
-            logger.error(f"Unexpected response format: {response}")
-            return "Summary could not be generated."
-    except Exception as e:
-        logger.error(f"Error during summarization: {str(e)}")
-        return "Summary could not be generated."
-
-# Function to search for stories and return the summarized version of the story
-def search_story(search_query):
-    """Search for stories related to the user's query and return summarized story."""
-    try:
-        logger.debug(f"Searching for: {search_query}")
-        search_embedding = embedder.embed_query(search_query)
-        logger.debug(f"Search embedding for query '{search_query}': {search_embedding}")
-
-        results = qdrant_client.search(
+        payload = [{"story_id": i, "title": title, "text": text} for i, (title, text) in enumerate(zip(df_stories['title'], df_stories['text']))]
+        qdrant_client.upload_collection(
             collection_name="children_stories",
-            query_vector=search_embedding,
-            limit=1,  # Only return one story (top match)
+            vectors=embeddings,
+            payloads=payload,
         )
-        logger.debug(f"Raw Qdrant search results: {results}")
+        logger.info("Stories uploaded to Qdrant collection.")
 
-        if results and len(results) > 0:
-            result = results[0]  # Get the top result
-            story_text = result.payload.get('text', 'No text found')
-            summary = summarize_story(story_text)  # Generate a summary
-            return {"id": result.id, "title": result.payload.get('title', 'No title found'), "summary": summary}
-        else:
-            logger.info("No results found")
-            return {}
+        st.success("Stories successfully uploaded to Qdrant!")
 
-    except Exception as e:
-        logger.error(f"Error during search: {str(e)}")
-        return {}
+# Search function
+def search_story(title):
+    """Searches for a story based on the title."""
+    results = qdrant_client.search(collection_name="children_stories", query_vector=embedder.embed_query(title), limit=5)
+    return results
 
-# Streamlit UI to input story prompt and show the generated story
-st.title("Interactive Storytelling with LLM")
+if st.button("Search Story"):
+    title = st.text_input("Enter the title of the story you want to search:")
+    if title:
+        search_results = search_story(title)
+        st.write("Search Results:")
+        for result in search_results:
+            st.write(f"Title: {result['payload']['title']}, Text: {result['payload']['text']}")
 
-# Input field for the user to search for a story
-search_query = st.text_input("Search for a story:", key="search_story")
-
-# Search story button
-if st.button("Search Story", key="search_story_button"):
-    if search_query:
-        with st.spinner("Searching for the best story..."):
-            search_result = search_story(search_query)
-        if search_result:
-            st.write("Search Result (Summarized):")
-            st.write(f"**Story ID:** {search_result['id']}\n**Title:** {search_result['title']}\n**Summary:** {search_result['summary']}")
-        else:
-            st.error("No matching stories found.")
-    else:
-        st.warning("Please type a search query.")
+if st.button("Generate New Story"):
+    prompt = st.text_area("Enter a prompt to generate a new story:")
+    if prompt:
+        response = llm.complete(prompt)
+        st.subheader("Generated Story:")
+        st.write(response['text'])

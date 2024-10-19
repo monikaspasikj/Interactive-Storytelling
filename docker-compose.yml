@@ -8,11 +8,6 @@ services:
       - "6333:6333"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/qdrant:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
     networks:
       - qdrant_network
 
