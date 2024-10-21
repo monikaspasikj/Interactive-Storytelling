@@ -13,3 +13,4 @@ langchain-community
 huggingface-hub 
 sentence-transformers
 flaml[automl] 
+tenacity

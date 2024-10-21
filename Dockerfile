@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set the working directory
 WORKDIR /app
 
-# Copy only the requirements file first, to cache dependencies
+# Copy only the requirements file first to leverage Docker layer caching
 COPY requirements.txt /app/requirements.txt
 
 # Install system dependencies
@@ -19,11 +19,10 @@ RUN apt-get update && \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies from requirements.txt first
-RUN pip install torch==2.4.1 --no-cache-dir
+# Install Python dependencies from requirements.txt first for better caching
 RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
-# Install additional Python dependencies
+# Install additional Python dependencies that are not listed in requirements.txt
 RUN pip install pyautogen openai kaggle qdrant-client transformers whisper gtts streamlit python-dotenv scikit-learn \
     langchain langchain-community sentence-transformers flaml[automl]
 
@@ -32,9 +31,6 @@ RUN pip install -U langchain-community langchain-huggingface langchain-openai  #
 
 # Copy the rest of the application files into the container
 COPY . /app
-
-# Copy the .env file to the container
-COPY .env /app/.env
 
 # Expose the Streamlit port
 EXPOSE 8501
