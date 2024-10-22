@@ -1,8 +1,9 @@
 import time
 import streamlit as st
 from langchain_community.vectorstores import Qdrant
-from langchain_community.embeddings import OpenAIEmbeddings  # Can replace with local embeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings  # Change OpenAI to HuggingFace embeddings
 from qdrant_client import QdrantClient, http
+from transformers import pipeline  # Import Hugging Face pipeline for text generation
 import os
 import random
 
@@ -16,7 +17,6 @@ def retry_with_exponential_backoff(
     errors: tuple = (Exception,),
 ):
     """Retry a function with exponential backoff."""
-
     def wrapper(*args, **kwargs):
         num_retries = 0
         delay = initial_delay
@@ -31,9 +31,7 @@ def retry_with_exponential_backoff(
                 
                 delay *= exponential_base * (1 + jitter * random.random())
                 time.sleep(delay)
-
     return wrapper
-
 
 # Function to connect to Qdrant
 def get_qdrant_client():
@@ -42,12 +40,16 @@ def get_qdrant_client():
 
 def main():
     with st.sidebar:
-        tab1, tab2, tab3 = st.tabs(["Qdrant API", "OpenAI API", "Collections"])
+        tab1, tab2, tab3 = st.tabs(["Qdrant API", "Hugging Face API", "Collections"])
 
         with tab1:
             st.subheader("Qdrant API 🔑")
             st.write("No API key is required to connect to the Qdrant service.")
             st.success("Successfully connected to Qdrant!", icon="⚡️")
+
+        with tab2:
+            st.subheader("Hugging Face API 🔑")
+            st.success("Using Hugging Face for text generation!", icon="🔑")
 
         with tab3:
             st.subheader("Qdrant Collections")
@@ -89,7 +91,7 @@ def main():
     qdrant_client = get_qdrant_client()
     collections = qdrant_client.get_collections().dict()["collections"]
     collection_to_store = st.selectbox(label="Please choose a collection to store the text you wish to query:", options=[i['name'] for i in collections])
-    embeddings = OpenAIEmbeddings()  # Can switch to a local embedding model
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")  # Replace OpenAIEmbeddings
 
     vector_store = Qdrant(
         client=qdrant_client,
@@ -110,22 +112,21 @@ def main():
         except Exception as e:
             st.error(f"Error connecting to Qdrant: {e}")
 
-    # Generate a new story with OpenAI (add exponential backoff for retries)
+    # Generate a new story with Hugging Face
     new_story_prompt = st.text_area("Generate a new story based on the existing stories:", height=200)
+    hf_pipeline = pipeline("text-generation", model="gpt2")  # Initialize Hugging Face pipeline
+
     if st.button("Generate New Story"):
         try:
             @retry_with_exponential_backoff
             def generate_story(prompt):
-                return openai.Completion.create(
-                    model="gpt-3.5-turbo",
-                    prompt=prompt,
-                    max_tokens=200
-                )
+                result = hf_pipeline(prompt, max_length=200, num_return_sequences=1)
+                return result[0]['generated_text']
 
             if new_story_prompt:
                 response = generate_story(new_story_prompt)
                 st.subheader("Generated Story:")
-                st.write(response['choices'][0]['text'])
+                st.write(response)
 
         except Exception as e:
             st.error(f"Error generating story: {e}")

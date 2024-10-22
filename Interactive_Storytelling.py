@@ -4,10 +4,10 @@ import pandas as pd
 import streamlit as st
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.vectorstores import Qdrant
-from langchain.llms import OpenAI
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+from transformers import pipeline  # Import Hugging Face pipeline
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -32,9 +32,9 @@ except Exception as e:
 embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 logger.debug("Initialized HuggingFace embedding model.")
 
-# Initialize LangChain's LLM
-llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-3.5-turbo")
-logger.debug("Initialized OpenAI model.")
+# Initialize Hugging Face text generation pipeline
+text_generator = pipeline("text-generation", model="gpt2")
+logger.debug("Initialized Hugging Face text generation model.")
 
 # Function to preprocess the dataset
 def preprocess_txt_dataset(file_path):
@@ -122,6 +122,7 @@ if st.button("Search Story"):
 if st.button("Generate New Story"):
     prompt = st.text_area("Enter a prompt to generate a new story:")
     if prompt:
-        response = llm.complete(prompt)
+        # Use Hugging Face to generate the story
+        generated_story = text_generator(prompt, max_length=200, num_return_sequences=1)
         st.subheader("Generated Story:")
-        st.write(response['text'])
+        st.write(generated_story[0]['generated_text'])

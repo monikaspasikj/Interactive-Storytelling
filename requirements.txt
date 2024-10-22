@@ -1,7 +1,7 @@
 numpy==1.26.4
 qdrant-client==1.11.3
-torch 
-transformers 
+torch  # Hugging Face dependency
+transformers  # Hugging Face dependency
 streamlit  
 gtts
 autogen
@@ -9,8 +9,8 @@ pypdf
 python-dotenv
 scikit-learn
 langchain
-langchain-community  
-huggingface-hub 
+langchain-community
+huggingface-hub  # Needed for Hugging Face models
 sentence-transformers
-flaml[automl] 
+flaml[automl]
 tenacity
