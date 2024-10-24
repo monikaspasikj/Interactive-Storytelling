@@ -2,12 +2,12 @@ import os
 import logging
 import pandas as pd
 import streamlit as st
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from langchain.vectorstores import Qdrant
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_qdrant import Qdrant
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from transformers import pipeline  # Import Hugging Face pipeline
+from transformers import pipeline
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -87,37 +87,60 @@ if not df_stories.empty:
         st.error("Failed to create collection in Qdrant.")
 
     st.write("Generating embeddings for the stories...")
-    embeddings = embedder.embed_documents(df_stories['text'].tolist())
 
-    if embeddings is None:
-        st.error("Error: Failed to generate embeddings for the stories.")
-        logger.error("Failed to generate embeddings.")
+    # Filter valid documents and ensure they have valid strings
+    valid_documents = df_stories[df_stories['text'].apply(lambda x: isinstance(x, str) and x.strip() != '')]
+
+    if valid_documents.empty:
+        st.error("No valid documents found for embedding.")
     else:
-        logger.info(f"Generated {len(embeddings)} embeddings successfully.")
+        embeddings = embedder.embed_documents(valid_documents['text'].tolist())
 
-        payload = [{"story_id": i, "title": title, "text": text} for i, (title, text) in enumerate(zip(df_stories['title'], df_stories['text']))]
-        qdrant_client.upload_collection(
-            collection_name="children_stories",
-            vectors=embeddings,
-            payloads=payload,
-        )
-        logger.info("Stories uploaded to Qdrant collection.")
+        if embeddings is None:
+            st.error("Error: Failed to generate embeddings for the stories.")
+            logger.error("Failed to generate embeddings.")
+        else:
+            logger.info(f"Generated {len(embeddings)} embeddings successfully.")
 
-        st.success("Stories successfully uploaded to Qdrant!")
+            payload = [{"story_id": i, "title": title, "text": text} for i, (title, text) in enumerate(zip(valid_documents['title'], valid_documents['text']))]
+            qdrant_client.upload_collection(
+                collection_name="children_stories",
+                vectors=embeddings,
+                payloads=payload,
+            )
+            logger.info("Stories uploaded to Qdrant collection.")
+            st.success("Stories successfully uploaded to Qdrant!")
 
 # Search function
 def search_story(title):
     """Searches for a story based on the title."""
-    results = qdrant_client.search(collection_name="children_stories", query_vector=embedder.embed_query(title), limit=5)
-    return results
+    try:
+        query_vector = embedder.embed_query(title)
+        print(f"Searching with vector: {query_vector}")  # Debugging
+
+        results = qdrant_client.search(
+            collection_name="children_stories",
+            query_vector=query_vector,
+            limit=5
+        )
+        if results:
+            print(f"Search results: {results}")  # Debugging
+        return results
+    except Exception as e:
+        logger.error(f"Error searching for story: {e}")
+        st.error(f"Error searching for story: {e}")
+        return []
 
 if st.button("Search Story"):
     title = st.text_input("Enter the title of the story you want to search:")
     if title:
         search_results = search_story(title)
-        st.write("Search Results:")
-        for result in search_results:
-            st.write(f"Title: {result['payload']['title']}, Text: {result['payload']['text']}")
+        if search_results:
+            st.write("Search Results:")
+            for result in search_results:
+                st.write(f"Title: {result['payload']['title']}, Text: {result['payload']['text']}")
+        else:
+            st.write("No valid stories found.")
 
 if st.button("Generate New Story"):
     prompt = st.text_area("Enter a prompt to generate a new story:")

@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set the working directory
 WORKDIR /app
 
+# Upgrade pip to the latest version
 RUN pip install --upgrade pip
 
 # Install system dependencies
@@ -24,6 +25,9 @@ COPY requirements.txt /app/requirements.txt
 # Install Python dependencies from requirements.txt using cache
 RUN --mount=type=cache,target=/root/.cache \
     pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
+
+# Install updated LangChain packages for HuggingFace and Qdrant
+RUN pip install langchain-huggingface langchain-qdrant
 
 # Copy the rest of the application files into the container
 COPY . /app
