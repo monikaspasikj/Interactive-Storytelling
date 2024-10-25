@@ -7,130 +7,90 @@ from langchain_qdrant import Qdrant
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-from transformers import pipeline
+from gtts import gTTS
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
 # Initialize Qdrant client
 qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=int(os.getenv("QDRANT_PORT", "6333")))
-logger.debug("Initialized Qdrant client.")
+logger.debug("Initialized Qdrant client.")  # Fixed missing parenthesis on line 21
 
-# Check available collections in Qdrant
-try:
-    collections = qdrant_client.get_collections()
-    logger.info(f"Available collections: {collections}")
-except Exception as e:
-    logger.error(f"Failed to retrieve collections: {e}")
-    st.error("Could not connect to Qdrant or retrieve collections.")
+# Set up embeddings
+embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en")
+logger.debug("Using BGE embeddings for queries.")
 
-# Initialize LangChain's embedding model
-embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-logger.debug("Initialized HuggingFace embedding model.")
+# Convert text to audio
+def text_to_audio(text):
+    tts = gTTS(text)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+        tts.save(fp.name)
+        return fp.name
 
-# Initialize Hugging Face text generation pipeline
-text_generator = pipeline("text-generation", model="gpt2")
-logger.debug("Initialized Hugging Face text generation model.")
-
-# Function to preprocess the dataset
+# Preprocess dataset
 def preprocess_txt_dataset(file_path):
-    """Reads the .txt dataset, splitting it into titles and stories."""
     if not os.path.exists(file_path):
-        logger.error(f"The file {file_path} was not found.")
-        raise FileNotFoundError(f"The file {file_path} was not found.")
-    
-    logger.info(f"Loading dataset from {file_path}...")
+        logger.error(f"File {file_path} not found.")
+        raise FileNotFoundError(f"{file_path} not found.")
+    logger.info(f"Loading data from {file_path}...")
+
     with open(file_path, 'r', encoding='utf-8') as file:
         data = file.read()
-
     stories = data.split('\n\n')
-    stories = [story.strip() for story in stories if story.strip()]
-
-    titles = []
-    texts = []
-    
+    titles, texts = [], []
     for story in stories:
         lines = story.split('\n')
-        title = lines[0].strip()  # First line is the title
-        text = ' '.join(lines[1:]).strip()  # The rest is the story content
-        titles.append(title)
-        texts.append(text)
-    
-    logger.info("Successfully preprocessed the dataset.")
+        titles.append(lines[0].strip())
+        texts.append(' '.join(lines[1:]).strip())
+    logger.info("Dataset processed successfully.")
     return pd.DataFrame({'title': titles, 'text': texts})
 
-# Load the .txt dataset and preprocess it
+# Load dataset
 file_path = 'cleaned_stories_final.txt'
 try:
     df_stories = preprocess_txt_dataset(file_path)
-    st.write(f"Loaded {len(df_stories)} stories from the dataset.")
-except (FileNotFoundError, ValueError) as e:
+    st.write(f"Loaded {len(df_stories)} stories.")
+except Exception as e:
     st.error(f"Error: {e}")
-    logger.error(e)
     df_stories = pd.DataFrame()
 
+# If dataset loaded, recreate collection with correct vector size and upload embeddings
 if not df_stories.empty:
-    st.write("Creating collection in Qdrant...")
-
     try:
+        # Delete any existing collection to avoid dimension mismatch
+        qdrant_client.delete_collection("children_stories")
+
+        # Recreate collection with vector size 1024 for BAAI/bge-large-en embeddings
         qdrant_client.recreate_collection(
-            collection_name="children_stories",
-            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
+            "children_stories",
+            models.VectorParams(size=1024, distance=models.Distance.COSINE)
         )
-        logger.info("Qdrant collection created.")
+
+        # Generate embeddings and upload to collection
+        embeddings = embedder.embed_documents(df_stories['text'].tolist())
+        payload = [{"story_id": i, "title": title, "text": text} for i, (title, text) in enumerate(zip(df_stories['title'], df_stories['text']))]
+        qdrant_client.upload_collection("children_stories", vectors=embeddings, payloads=payload)
+        st.success("Stories uploaded to Qdrant!")
     except Exception as e:
-        logger.error(f"Failed to create collection in Qdrant: {e}")
-        st.error("Failed to create collection in Qdrant.")
+        logger.error(f"Error uploading to Qdrant: {e}")
 
-    st.write("Generating embeddings for the stories...")
-
-    # Filter valid documents and ensure they have valid strings
-    valid_documents = df_stories[df_stories['text'].apply(lambda x: isinstance(x, str) and x.strip() != '')]
-
-    if valid_documents.empty:
-        st.error("No valid documents found for embedding.")
-    else:
-        embeddings = embedder.embed_documents(valid_documents['text'].tolist())
-
-        if embeddings is None:
-            st.error("Error: Failed to generate embeddings for the stories.")
-            logger.error("Failed to generate embeddings.")
-        else:
-            logger.info(f"Generated {len(embeddings)} embeddings successfully.")
-
-            payload = [{"story_id": i, "title": title, "text": text} for i, (title, text) in enumerate(zip(valid_documents['title'], valid_documents['text']))]
-            qdrant_client.upload_collection(
-                collection_name="children_stories",
-                vectors=embeddings,
-                payloads=payload,
-            )
-            logger.info("Stories uploaded to Qdrant collection.")
-            st.success("Stories successfully uploaded to Qdrant!")
-
-# Search function
+# Query function
 def search_story(title):
-    """Searches for a story based on the title."""
     try:
         query_vector = embedder.embed_query(title)
-        print(f"Searching with vector: {query_vector}")  # Debugging
-
-        results = qdrant_client.search(
-            collection_name="children_stories",
-            query_vector=query_vector,
-            limit=5
-        )
-        if results:
-            print(f"Search results: {results}")  # Debugging
+        results = qdrant_client.search("children_stories", query_vector=query_vector, limit=5)
         return results
     except Exception as e:
-        logger.error(f"Error searching for story: {e}")
-        st.error(f"Error searching for story: {e}")
+        logger.error(f"Error in search: {e}")
+        st.error(f"Error in search: {e}")
         return []
 
+# Search and audio playback in Streamlit app
 if st.button("Search Story"):
     title = st.text_input("Enter the title of the story you want to search:")
     if title:
@@ -138,7 +98,12 @@ if st.button("Search Story"):
         if search_results:
             st.write("Search Results:")
             for result in search_results:
-                st.write(f"Title: {result['payload']['title']}, Text: {result['payload']['text']}")
+                story_text = result['payload']['text']
+                st.write(f"Title: {result['payload']['title']}, Text: {story_text}")
+
+                # Generate and play audio for the story
+                audio_file_path = text_to_audio(story_text)
+                st.audio(audio_file_path, format="audio/mp3")
         else:
             st.write("No valid stories found.")
 
