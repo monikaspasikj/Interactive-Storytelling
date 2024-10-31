@@ -5,6 +5,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+from sentence_transformers import SentenceTransformer
 from gtts import gTTS
 import tempfile
 import openai
@@ -20,6 +21,14 @@ logger = logging.getLogger(__name__)
 # Initialize Qdrant client
 qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST", "localhost"), port=int(os.getenv("QDRANT_PORT", "6333")))
 
+# Load the embedding model and ensure it has 384 dimensions
+st_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+
+# Check embedding dimension
+test_embedding = st_model.encode("Test sentence")
+if len(test_embedding) != 384:
+    raise ValueError(f"Unexpected embedding dimension: {len(test_embedding)}. Expected 384.")
+
 # Text to speech conversion
 def text_to_audio(text):
     tts = gTTS(text)
@@ -27,12 +36,12 @@ def text_to_audio(text):
         tts.save(fp.name)
         return fp.name
 
-# Embed text using OpenAI
-def embed_text_openai(text):
-    response = openai.Embedding.create(input=[text], model="text-embedding-ada-002")
-    return response['data'][0]['embedding']
+# Embed text using sentence-transformers
+def embed_text(text):
+    embedding = st_model.encode(text)
+    return embedding
 
-# Load dataset and create collection
+# Load dataset and preprocess if needed
 file_path = 'cleaned_stories_final.txt'
 try:
     df_stories = preprocess_txt_dataset(file_path)
@@ -43,9 +52,12 @@ except Exception as e:
 # Upload embeddings to Qdrant
 if not df_stories.empty:
     try:
-        qdrant_client.recreate_collection("children_stories", models.VectorParams(size=1536, distance=models.Distance.COSINE))
+        qdrant_client.recreate_collection(
+            "children_stories", 
+            models.VectorParams(size=384, distance=models.Distance.COSINE)
+        )
         for i, (title, text) in enumerate(zip(df_stories['title'], df_stories['text'])):
-            embedding = embed_text_openai(text)
+            embedding = embed_text(text)
             qdrant_client.upload_records(
                 collection_name="children_stories",
                 records=[models.Record(id=i, vector=embedding, payload={"title": title, "text": text})]
@@ -55,16 +67,26 @@ if not df_stories.empty:
         logger.error(f"Error uploading to Qdrant: {e}")
         st.error(f"Failed to upload to Qdrant: {e}")
 
-# Search function
+# Search function with summary option
 def search_story(title):
     try:
-        query_vector = embed_text_openai(title)
+        query_vector = embed_text(title)
         results = qdrant_client.search("children_stories", query_vector=query_vector, limit=5)
         return results
     except Exception as e:
         logger.error(f"Error in search: {e}")
         st.error(f"Error in search: {e}")
         return []
+
+# Summarize function
+def summarize_text(text):
+    response = openai.Completion.create(
+        engine="text-davinci-003", 
+        prompt=f"Summarize the following story:\n\n{text}",
+        max_tokens=50
+    )
+    summary = response.choices[0].text.strip()
+    return summary
 
 # Streamlit interface
 if st.button("Search Story"):
@@ -75,7 +97,9 @@ if st.button("Search Story"):
             st.write("Search Results:")
             for result in search_results:
                 story_text = result.payload['text']
-                st.write(f"Title: {result.payload['title']}, Text: {story_text}")
+                summary = summarize_text(story_text)
+                st.write(f"Title: {result.payload['title']}")
+                st.write(f"Summary: {summary}")
                 audio_file_path = text_to_audio(story_text)
                 st.audio(audio_file_path, format="audio/mp3")
         else:
