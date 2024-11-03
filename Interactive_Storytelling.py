@@ -1,6 +1,5 @@
 import os
 import logging
-import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_qdrant import QdrantVectorStore
@@ -9,7 +8,7 @@ from gtts import gTTS
 import tempfile
 import openai
 from qdrant_client import QdrantClient
-from qdrant_client import models  # Import for vector configuration
+from qdrant_client.http.models import VectorParams, Distance
 
 # Load environment variables
 load_dotenv()
@@ -21,10 +20,11 @@ qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST"), port=int(os.getenv("
 
 # Check if the collection exists, create it if not
 collection_name = "children_stories"
+embedding_dimension = embeddings.embedding_dim
 if not qdrant_client.has_collection(collection_name):
     qdrant_client.create_collection(
         collection_name=collection_name,
-        vectors_config=models.VectorParams(size=embeddings.embedding_dim, distance=models.Distance.COSINE)
+        vectors_config=VectorParams(size=embedding_dimension, distance=Distance.COSINE)
     )
 
 vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name, embedding=embeddings)

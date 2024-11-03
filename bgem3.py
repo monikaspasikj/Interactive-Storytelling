@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from langchain_qdrant import QdrantVectorStore
 from langchain_openai import OpenAIEmbeddings
 from qdrant_client import QdrantClient
+from qdrant_client.http.models import VectorParams, Distance
 
 # Load environment variables
 load_dotenv()
@@ -21,11 +22,11 @@ qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST"), port=int(os.getenv("
 
 # Collection name and configuration
 collection_name = "children_stories"
+embedding_dimension = embeddings.embedding_dim
 if not qdrant_client.has_collection(collection_name):
     qdrant_client.create_collection(
         collection_name=collection_name,
-        vector_size=embeddings.embedding_dim,  # Set to the dimension of OpenAI embeddings
-        distance="Cosine"  # Using cosine distance metric
+        vectors_config=VectorParams(size=embedding_dimension, distance=Distance.COSINE)
     )
 
 vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name, embedding=embeddings)
