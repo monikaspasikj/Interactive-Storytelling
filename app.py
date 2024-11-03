@@ -8,8 +8,8 @@ import openai
 import os
 import tempfile
 from langchain_qdrant import QdrantVectorStore
-from langchain_openai import OpenAIEmbeddings
-from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain.chains import RetrievalQA
 import uuid  # For generating unique IDs
 
 # Load environment variables
@@ -32,17 +32,24 @@ embedding_dimension = 1536
 # Check if the collection exists; create it if not
 try:
     qdrant_client.get_collection(collection_name)
-    print(f"Collection '{collection_name}' exists.")
-except Exception as e:
-    print(f"Collection not found: {e}. Creating a new collection.")
+except Exception:
     qdrant_client.create_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(size=embedding_dimension, distance=Distance.COSINE)
     )
-    print(f"Collection '{collection_name}' created successfully.")
 
 # Initialize the vector store
 vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name, embedding=embeddings)
+
+# Create a retrieval instance
+retriever = vector_store.as_retriever()  # Ensure you get the retriever from the vector store
+
+# Create the RetrievalQA instance
+qa_chain = RetrievalQA.from_chain_type(
+    llm=ChatOpenAI(model_name="gpt-3.5-turbo"),  # Change model as needed
+    chain_type="stuff",  # This can be adjusted based on the desired behavior
+    retriever=retriever,  # Pass the retriever here
+)
 
 # Function to read stories from the text file
 def read_stories_from_file(filename):
@@ -67,7 +74,6 @@ def read_stories_from_file(filename):
         if title and text:
             stories.append({'title': title, 'text': ' '.join(text)})
     
-    print(f"Read {len(stories)} stories from file.")
     return stories
 
 # Function to insert stories into Qdrant
@@ -87,11 +93,9 @@ def insert_stories(stories):
             collection_name=collection_name,
             points=[point]
         )
-        print(f"Inserted story with title: '{story['title']}' and ID: {unique_id}")
 
 # Convert text to audio function
 def text_to_audio(text):
-    """Convert text to audio and return the path to the saved MP3 file."""
     tts = gTTS(text)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
         tts.save(fp.name)
@@ -110,47 +114,25 @@ def main():
 
     st.header("Story Query and Generation")
     
-    # Search stories in Qdrant based on title
-    story_title = st.text_input("Enter the story title to search:")
+    # Query stories using RetrievalQA
+    story_title = st.text_input("Enter a story title to search:")
     if story_title:
-        results = vector_store.similarity_search(query=story_title, k=5)
-
-        if results:
-            st.write("Search Results:")
-            for result in results:
-                try:
-                    # Check if result has the expected attributes
-                    story_payload = result.metadata if hasattr(result, 'metadata') else {}
-                    title = story_payload.get('title', 'Unknown Title')
-                    text = story_payload.get('text', 'No text available.')
-
-                    st.write(f"**Title:** {title}\n\n**Text:** {text}")
-                    
-                    # Convert text to audio only if text is available
-                    if text != 'No text available.':
-                        audio_file_path = text_to_audio(text)
-                        st.audio(audio_file_path, format="audio/mp3")
-                        os.remove(audio_file_path)
-                except KeyError as e:
-                    st.error(f"Error accessing payload: {e}. Result content: {result}")
-        else:
-            st.write("No valid story found for the given title.")
+        result = qa_chain({"query": story_title})
+        
+        st.write("Search Result:")
+        st.write(result['result'])  # The result should contain the text of the story
 
     # Generate a new story based on a prompt using ChatOpenAI
     if st.button("Generate New Story"):
         prompt = st.text_area("Enter a prompt for a new story:")
         if prompt:
-            chat_model = ChatOpenAI()
-            try:
-                response = chat_model.generate(prompt)
-                generated_story = response.strip()
-                st.subheader("Generated Story:")
-                st.write(generated_story)
-                audio_file_path = text_to_audio(generated_story)
-                st.audio(audio_file_path, format="audio/mp3")
-                os.remove(audio_file_path)
-            except Exception as e:
-                st.error("Error generating story: {}".format(e))
+            response = qa_chain({"query": prompt})
+            generated_story = response['result'].strip()
+            st.subheader("Generated Story:")
+            st.write(generated_story)
+            audio_file_path = text_to_audio(generated_story)
+            st.audio(audio_file_path, format="audio/mp3")
+            os.remove(audio_file_path)
 
 if __name__ == "__main__":
     main()
