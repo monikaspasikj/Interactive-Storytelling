@@ -1,8 +1,12 @@
 pandas
-qdrant-client==1.1.3
+qdrant-client
 gtts
 streamlit
 python-dotenv
-openai==0.27.0
+openai
 transformers
-torch  
+torch
+langchain
+langchain-openai
+langchain-core
+langchain-qdrant

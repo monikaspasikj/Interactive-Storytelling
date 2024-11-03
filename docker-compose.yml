@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 services:
   qdrant:
@@ -8,6 +8,7 @@ services:
       - "6333:6333"
     volumes:
       - ./volumes/qdrant:/qdrant/storage
+    restart: always # Restart policy
     networks:
       - qdrant_network
 
@@ -24,6 +25,7 @@ services:
       - QDRANT_PORT=6333
     depends_on:
       - qdrant
+    restart: always # Restart policy
     networks:
       - qdrant_network
 

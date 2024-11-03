@@ -1,9 +1,6 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
+**pycache**/
+_.py[cod]
+_$py.class
 .env
 .venv
 env/
@@ -11,43 +8,24 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
-# Logs
-*.log
-
-# Unit test / coverage reports
-.coverage
-*.cover
+_.log
+_.cover
 .cache
 .tox/
 .pytest_cache/
-
-# Distribution / packaging
-*.egg-info/
+_.egg-info/
 .eggs/
 dist/
 build/
 wheels/
-*.egg
-
-# Jupyter Notebook checkpoints
+_.egg
 .ipynb_checkpoints
-
-# Local databases
 db.sqlite3
 db.sqlite3-journal
-
-# Python project files
-*.spec
-*.manifest
-
-# Ignore volumes and other docker-related directories
+_.spec
+_.manifest
 volumes/
 pdf_files/
-
-# Ignore Dockerfile and .dockerignore
 Dockerfile
 .dockerignore
-
-# Git files
 .git/
