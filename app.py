@@ -10,6 +10,7 @@ import tempfile
 from langchain_qdrant import QdrantVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
+import uuid  # For generating unique IDs
 
 # Load environment variables
 load_dotenv()
@@ -32,7 +33,8 @@ embedding_dimension = 1536
 try:
     qdrant_client.get_collection(collection_name)
     print(f"Collection '{collection_name}' exists.")
-except Exception:
+except Exception as e:
+    print(f"Collection not found: {e}. Creating a new collection.")
     qdrant_client.create_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(size=embedding_dimension, distance=Distance.COSINE)
@@ -65,14 +67,16 @@ def read_stories_from_file(filename):
         if title and text:
             stories.append({'title': title, 'text': ' '.join(text)})
     
+    print(f"Read {len(stories)} stories from file.")
     return stories
 
 # Function to insert stories into Qdrant
 def insert_stories(stories):
-    for index, story in enumerate(stories):
+    for story in stories:
+        unique_id = str(uuid.uuid4())  # Create a unique ID for each story
         title_embedding = embeddings.embed_query(story['title'])
         point = {
-            'id': index,  # Use the index as a unique integer ID
+            'id': unique_id,  # Use a UUID as a unique string ID
             'vector': title_embedding,
             'payload': {
                 'title': story['title'],
@@ -83,10 +87,11 @@ def insert_stories(stories):
             collection_name=collection_name,
             points=[point]
         )
-
+        print(f"Inserted story with title: '{story['title']}' and ID: {unique_id}")
 
 # Convert text to audio function
 def text_to_audio(text):
+    """Convert text to audio and return the path to the saved MP3 file."""
     tts = gTTS(text)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
         tts.save(fp.name)
@@ -98,8 +103,10 @@ def main():
     st.success("Connected to Qdrant!", icon="⚡️")
 
     # Read stories from file and insert them into Qdrant
-    stories_to_insert = read_stories_from_file('cleaned_stories_final.txt')
-    insert_stories(stories_to_insert)
+    if st.button("Load Stories"):
+        stories_to_insert = read_stories_from_file('cleaned_stories_final.txt')
+        insert_stories(stories_to_insert)
+        st.success("Stories loaded successfully!")
 
     st.header("Story Query and Generation")
     
@@ -111,10 +118,21 @@ def main():
         if results:
             st.write("Search Results:")
             for result in results:
-                st.write(f"Title: {result['payload']['title']}\n\nText: {result['payload']['text']}")
-                audio_file_path = text_to_audio(result['payload']['text'])
-                st.audio(audio_file_path, format="audio/mp3")
-                os.remove(audio_file_path)
+                try:
+                    # Check if result has the expected attributes
+                    story_payload = result.metadata if hasattr(result, 'metadata') else {}
+                    title = story_payload.get('title', 'Unknown Title')
+                    text = story_payload.get('text', 'No text available.')
+
+                    st.write(f"**Title:** {title}\n\n**Text:** {text}")
+                    
+                    # Convert text to audio only if text is available
+                    if text != 'No text available.':
+                        audio_file_path = text_to_audio(text)
+                        st.audio(audio_file_path, format="audio/mp3")
+                        os.remove(audio_file_path)
+                except KeyError as e:
+                    st.error(f"Error accessing payload: {e}. Result content: {result}")
         else:
             st.write("No valid story found for the given title.")
 
