@@ -10,3 +10,7 @@ langchain
 langchain-openai
 langchain-core
 langchain-qdrant
+streamlit-webrtc
+sounddevice
+scipy
+git+https://github.com/openai/whisper.git
