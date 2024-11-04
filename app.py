@@ -42,57 +42,14 @@ except Exception:
 vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name, embedding=embeddings)
 
 # Create a retrieval instance
-retriever = vector_store.as_retriever()  # Ensure you get the retriever from the vector store
+retriever = vector_store.as_retriever()
 
 # Create the RetrievalQA instance
 qa_chain = RetrievalQA.from_chain_type(
-    llm=ChatOpenAI(model_name="gpt-3.5-turbo"),  # Change model as needed
-    chain_type="stuff",  # This can be adjusted based on the desired behavior
-    retriever=retriever,  # Pass the retriever here
+    llm=ChatOpenAI(model_name="gpt-3.5-turbo"),
+    chain_type="stuff",
+    retriever=retriever,
 )
-
-# Function to read stories from the text file
-def read_stories_from_file(filename):
-    stories = []
-    with open(filename, 'r', encoding='utf-8') as file:
-        title = None
-        text = []
-        
-        for line in file:
-            line = line.strip()
-            if not line:  # If the line is blank, continue to the next line
-                if title and text:  # If we have a title and text, save the story
-                    stories.append({'title': title, 'text': ' '.join(text)})
-                    title = None
-                    text = []
-            elif title is None:  # The first non-blank line should be the title
-                title = line
-            else:  # Subsequent lines are part of the story
-                text.append(line)
-        
-        # Save the last story if there's no trailing blank line
-        if title and text:
-            stories.append({'title': title, 'text': ' '.join(text)})
-    
-    return stories
-
-# Function to insert stories into Qdrant
-def insert_stories(stories):
-    for story in stories:
-        unique_id = str(uuid.uuid4())  # Create a unique ID for each story
-        title_embedding = embeddings.embed_query(story['title'])
-        point = {
-            'id': unique_id,  # Use a UUID as a unique string ID
-            'vector': title_embedding,
-            'payload': {
-                'title': story['title'],
-                'text': story['text']
-            }
-        }
-        qdrant_client.upsert(
-            collection_name=collection_name,
-            points=[point]
-        )
 
 # Convert text to audio function
 def text_to_audio(text):
@@ -106,33 +63,33 @@ def main():
     st.sidebar.subheader("Qdrant API Status")
     st.success("Connected to Qdrant!", icon="⚡️")
 
-    # Read stories from file and insert them into Qdrant
-    if st.button("Load Stories"):
-        stories_to_insert = read_stories_from_file('cleaned_stories_final.txt')
-        insert_stories(stories_to_insert)
-        st.success("Stories loaded successfully!")
-
     st.header("Story Query and Generation")
     
     # Query stories using RetrievalQA
     story_title = st.text_input("Enter a story title to search:")
     if story_title:
         result = qa_chain({"query": story_title})
-        
         st.write("Search Result:")
-        st.write(result['result'])  # The result should contain the text of the story
+        st.write(result['result'])
 
-    # Generate a new story based on a prompt using ChatOpenAI
+    # Input for generating a new story
+    prompt = st.text_area("Enter a prompt for a new story:")
+
+    # Generate a new story based on the entered prompt
     if st.button("Generate New Story"):
-        prompt = st.text_area("Enter a prompt for a new story:")
         if prompt:
+            st.write("Generating story...")
             response = qa_chain({"query": prompt})
             generated_story = response['result'].strip()
             st.subheader("Generated Story:")
             st.write(generated_story)
+
+            # Convert generated story to audio
             audio_file_path = text_to_audio(generated_story)
             st.audio(audio_file_path, format="audio/mp3")
             os.remove(audio_file_path)
+        else:
+            st.write("Please enter a prompt to generate a story.")
 
 if __name__ == "__main__":
     main()
