@@ -122,6 +122,11 @@ def main():
                 st.write("Story Result:")
                 st.write(story_result)
 
+                story=result['result']
+                audio_file_path_story = text_to_audio(story)
+                st.audio(audio_file_path_story, format="audio/mp3")
+                os.remove(audio_file_path_story)
+
                 # Convert story result to audio
                 audio_file_path = text_to_audio(story_result)
                 st.audio(audio_file_path, format="audio/mp3")
@@ -133,6 +138,11 @@ def main():
         result = qa_chain({"query": story_title})
         st.write("Search Result:")
         st.write(result['result'])
+
+        story=result['result']
+        audio_file_path_story = text_to_audio(story)
+        st.audio(audio_file_path_story, format="audio/mp3")
+        os.remove(audio_file_path_story)
 
     # Input for generating a new story
     prompt = st.text_area("Enter a prompt for a new story:")
