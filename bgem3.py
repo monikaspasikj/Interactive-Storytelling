@@ -3,8 +3,8 @@ import openai
 import os
 import logging
 from dotenv import load_dotenv
-from langchain_qdrant import QdrantVectorStore
-from langchain_openai import OpenAIEmbeddings
+from langchain.vectorstores import Qdrant
+from langchain.embeddings.openai import OpenAIEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import VectorParams, Distance
 
@@ -29,7 +29,7 @@ if not qdrant_client.has_collection(collection_name):
         vectors_config=VectorParams(size=embedding_dimension, distance=Distance.COSINE)
     )
 
-vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name, embedding=embeddings)
+vector_store = Qdrant(client=qdrant_client, collection_name=collection_name, embedding=embeddings)
 
 def preprocess_txt_dataset(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:

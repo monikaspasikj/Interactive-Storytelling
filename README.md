@@ -1,26 +1,41 @@
-```python
-import whisper
-from gtts import gTTS
-import os
-import gdown
+# Interactive Storytelling App
 
-# Load Whisper model
-model = whisper.load_model('medium')
+This project is an interactive storytelling application that leverages AI to provide a dynamic user experience. The app allows users to retrieve stories, generate new ones, and use voice input for interactive story creation. It integrates OpenAI for language generation, Qdrant for vector storage, and Streamlit for the user interface.
 
-# Download audio file using gdown
-gdown.download('https://drive.google.com/uc?id=12u4YgTFzi5NbClJ8M9ZzSuLnsqkI_bQA', 'flowers_12-14.wav', quiet=False)
+## Features
 
-# Transcribe audio
-result = model.transcribe('flowers_12-14.wav', fp16=False)
-text = result['text']
+- **Retrieve Story by Title**: Users can input a title of a story to retrieve the full text and audio from a pre-stored collection of children’s stories.
+- **Generate a New Story**: Users can input a prompt to generate a unique story with text and audio output.
+- **Speech-to-Text Story Query**: Users can use voice input to request stories, and the app transcribes and responds with the full story and audio.
 
-# Text to speech conversion
-if not isinstance(text, str) or not text.strip():
-    raise ValueError("Transcribed text is not valid for TTS conversion.")
+## Architecture
 
-# Save output audio file
-output_audio_path = 'output_speech_vtoto.mp3'  # Adjust the path as needed
-tts = gTTS(text, lang='en')
-tts.save(output_audio_path)
+- **OpenAI GPT-3.5-turbo**: For generating and summarizing stories based on user input or prompts.
+- **Qdrant**: Vector database used to store and retrieve stories based on title or user prompts.
+- **LangChain**: Framework to streamline interactions between Qdrant, OpenAI, and other components.
+- **Streamlit**: Web-based front-end framework that presents the app's interface.
 
-print("Transcription and TTS conversion completed successfully.")
+## File Structure
+
+- **`app.py`**: Main file for Streamlit app setup and functionality implementation.
+- **`bgem3.py`**: Script to process and upload cleaned stories into the Qdrant vector database.
+- **`Interactive_Storytelling.py`**: Core functionality for story retrieval, generation, and audio output.
+- **`docker-compose.yml`**: Docker configuration for running the app and Qdrant container.
+- **`requirements.txt`**: Python dependencies needed for the project.
+- **`.env`**: Environment variables to store API keys and host configurations.
+
+## Setup and Installation
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+- OpenAI API key
+- Qdrant database setup
+
+### Steps
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd <repository-directory>
+   ```
