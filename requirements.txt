@@ -10,7 +10,6 @@ langchain
 langchain-openai
 langchain-core
 langchain-qdrant
-streamlit-webrtc
 sounddevice
 scipy
 streamlit-webrtc
