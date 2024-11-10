@@ -1,21 +1,18 @@
-import os
 import tempfile
-import time
-import uuid
+import os
+import whisper
+from gtts import gTTS
+from qdrant_client import QdrantClient
+from langchain_openai import OpenAIEmbeddings
+from langchain_qdrant import QdrantVectorStore
+from langchain.chains import RetrievalQA
 import streamlit as st
 from dotenv import load_dotenv
-from qdrant_client import QdrantClient
-from qdrant_client.http.models import VectorParams, Distance
-from gtts import gTTS
 from langchain_openai import ChatOpenAI
-import whisper
-from langchain_qdrant import QdrantVectorStore
-from langchain_openai import OpenAIEmbeddings
-from langchain.chains import RetrievalQA
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
 
 # Load environment variables
 load_dotenv()
+
 api_key = os.getenv("OPENAI_API_KEY")
 
 # Initialize Whisper model for speech-to-text
@@ -63,21 +60,22 @@ def text_to_audio(text):
         tts.save(fp.name)
         return fp.name
 
-class AudioProcessor(AudioProcessorBase):
-    def __init__(self):
-        self.audio_frames = []
+def audio_to_text(audio_file):
+    # Get the bytes from the audio file
+    audio_data = audio_file.getvalue()
 
-    def recv_audio(self, frames):
-        self.audio_frames.extend(frames)
-        return frames
-
-def audio_to_text(audio_frames):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as audio_file:
-        audio_file.write(b"".join(audio_frames))
-        audio_file_path = audio_file.name
-    result = whisper_model.transcribe(audio_file_path)
-    os.remove(audio_file_path)
-    return result["text"]
+    # Save the audio input to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
+        temp_audio_file.write(audio_data)
+        temp_audio_file.close()
+        
+        # Use Whisper to transcribe the audio file
+        result = whisper_model.transcribe(temp_audio_file.name)
+        
+        # Remove the temporary audio file after transcription
+        os.remove(temp_audio_file.name)
+        
+        return result["text"]
 
 def main():
     st.sidebar.subheader("Qdrant API Status")
@@ -117,7 +115,6 @@ def main():
             else:
                 st.write("No stories found with that title.")
 
-
     # Tab 2: Generate New Story
     with tab2:
         st.header("Generate New Story")
@@ -144,30 +141,37 @@ def main():
     # Tab 3: Speech-to-Text Query
     with tab3:
         st.header("Speech-to-Text Story Query")
-        audio_ctx = webrtc_streamer(
-            key="audio",
-            mode=WebRtcMode.SENDONLY,
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun1.l.google.com:19302"]}]},
-            media_stream_constraints={"audio": True},
-            audio_processor_factory=AudioProcessor,
-        )
+        audio_value = st.audio_input("Record a voice message")
 
-        if audio_ctx and audio_ctx.state.playing:
-            if st.button("Transcribe and Search", key="transcribe_search"):
-                audio_frames = audio_ctx.audio_processor.audio_frames
-                if audio_frames:
-                    transcribed_text = audio_to_text(audio_frames)
-                    st.write("Transcribed Text:")
-                    st.write(transcribed_text)
+        if audio_value:
+            st.write("Audio recorded! Processing...")
 
-                    result = qa_chain({"query": transcribed_text})
-                    story_result = result['result'].strip()
-                    st.write("Story Result:")
-                    st.write(story_result)
+            # Convert the recorded audio to text
+            transcribed_text = audio_to_text(audio_value)
 
-                    audio_file_path_story = text_to_audio(story_result)
-                    st.audio(audio_file_path_story, format="audio/mp3")
-                    os.remove(audio_file_path_story)
+            # Display the transcribed text
+            st.write("Transcribed Text:")
+            st.write(transcribed_text)
+
+            # Search in Qdrant collection for the query
+            query_vector = embeddings.embed_query(transcribed_text)
+            results = qdrant_client.search(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                limit=1
+            )
+
+            if results:
+                story_text = results[0].payload.get("text", "No story text found.")
+                st.write("Story Result:")
+                st.write(story_text)
+
+                # Convert the retrieved story to audio
+                audio_file_path_story = text_to_audio(story_text)
+                st.audio(audio_file_path_story, format="audio/mp3")
+                os.remove(audio_file_path_story)
+            else:
+                st.write("No matching story found.")
 
 if __name__ == "__main__":
     main()

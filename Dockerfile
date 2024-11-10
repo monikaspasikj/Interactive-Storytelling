@@ -10,14 +10,15 @@ WORKDIR /app
 # Upgrade pip to the latest version
 RUN pip install --upgrade pip
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y \
+# Install system dependencies, including ffmpeg
+RUN apt-get update
+RUN apt-get install -y \
     git \
     curl \
     unzip \
     sudo \
-    && rm -rf /var/lib/apt/lists/*
+    ffmpeg
+RUN rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
 COPY requirements.txt /app/requirements.txt

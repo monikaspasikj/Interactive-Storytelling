@@ -13,4 +13,5 @@ langchain-qdrant
 streamlit-webrtc
 sounddevice
 scipy
+streamlit-webrtc
 git+https://github.com/openai/whisper.git
