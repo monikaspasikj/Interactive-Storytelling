@@ -7,7 +7,7 @@ from gtts import gTTS
 from io import BytesIO
 import openai
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import VectorParams, Distance
+from qdrant_client.http.models import VectorParams, Distance, Filter, FieldCondition, MatchValue
 
 # Load environment variables
 load_dotenv()
@@ -17,9 +17,11 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 embeddings = OpenAIEmbeddings()
 qdrant_client = QdrantClient(host=os.getenv("QDRANT_HOST"), port=int(os.getenv("QDRANT_PORT")))
 
-# Check if the collection exists, create it if not
-collection_name = "children_stories"
+# Define the collection name and set up vector store for "children_stories_chunks"
+collection_name = "children_stories_chunks"
 embedding_dimension = embeddings.embedding_dim
+
+# Check if the collection exists, create it if not
 if not qdrant_client.has_collection(collection_name):
     qdrant_client.create_collection(
         collection_name=collection_name,
@@ -27,6 +29,13 @@ if not qdrant_client.has_collection(collection_name):
     )
 
 vector_store = Qdrant(client=qdrant_client, collection_name=collection_name, embedding=embeddings)
+
+# Check if the collection has points
+point_count = qdrant_client.count(collection_name)
+if point_count.count == 0:
+    st.write("Collection is empty. Please upload data to Qdrant.")
+else:
+    st.write(f"Collection '{collection_name}' has {point_count.count} points.")
 
 # Function to convert text to audio in memory
 def text_to_audio(text):
@@ -42,18 +51,32 @@ def text_to_audio(text):
 # Streamlit interface
 st.title("Story Query and Generation")
 
-# Input for searching the story
-title = st.text_input("Enter a story title to search:")
+# Input for searching the story by title or content snippet
+title = st.text_input("Enter a story title or content snippet to search:")
 if st.button("Search Story"):
     if title:
         query_vector = embeddings.embed_query(title)
-        results = vector_store.similarity_search(query_vector=query_vector, k=1)
+        
+        # Metadata filtering setup (if querying by title only)
+        filter_condition = Filter(
+            must=[
+                FieldCondition(
+                    key="title",
+                    match=MatchValue(value=title)
+                )
+            ]
+        )
+        
+        # Search for relevant chunks with filtering on title or by similarity if needed
+        results = vector_store.similarity_search(query_vector=query_vector, k=3, filter=filter_condition)
 
         if results:
             st.write("Search Result:")
-            story_text = results[0]['payload']['text']
+            # Concatenate and display all retrieved chunks
+            story_text = " ".join([result['payload']['text'] for result in results])
             st.write(story_text)
 
+            # Audio playback for concatenated chunks
             st.write("Click the button to listen to the story.")
             if st.button("Play Audio"):
                 try:
@@ -62,7 +85,7 @@ if st.button("Search Story"):
                 except Exception as e:
                     st.write("Error generating audio:", e)
         else:
-            st.write("No stories found with that title.")
+            st.write("No stories found with that title or content snippet.")
 
 # Generate new story
 if st.button("Generate New Story"):
@@ -79,7 +102,7 @@ if st.button("Generate New Story"):
 
         if st.button("Play Generated Story Audio"):
             try:
-                audio_file_path = text_to_audio(generated_story)
-                st.audio(audio_file_path, format="audio/mp3")
+                audio_file = text_to_audio(generated_story)
+                st.audio(audio_file, format="audio/mp3")
             except Exception as e:
                 st.write("Error generating audio:", e)
