@@ -6,6 +6,7 @@ python-dotenv
 openai
 transformers
 torch
+langchain_community
 langchain
 langchain-openai
 langchain-core
@@ -14,3 +15,4 @@ sounddevice
 scipy
 streamlit-webrtc
 git+https://github.com/openai/whisper.git
+markdown

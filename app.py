@@ -45,64 +45,42 @@ qa_chain = RetrievalQA.from_chain_type(
     retriever=retriever
 )
 
-# Function to load and upload data if collection is empty
-def load_and_upload_data(file_path="cleaned_stories_final.txt"):
-    if collection_exists:
-        print("Data already exists in the collection. Skipping upload.")
-        return
-
-    def split_story_into_chunks(story_text, chunk_size=100):
-        words = story_text.split()
-        return [' '.join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
-
-    titles, texts = [], []
-    current_title, current_text = None, ""
-
-    with open(file_path, 'r', encoding='utf-8') as file:
-        for line in file:
-            stripped_line = line.strip()
-            if stripped_line.endswith('.') and stripped_line == stripped_line.title():
-                if current_title and current_text:
-                    titles.append(current_title)
-                    texts.append(current_text.strip())
-                current_title = stripped_line
-                current_text = ""
-            else:
-                current_text += f"{stripped_line} "
-
-        if current_title and current_text:
-            titles.append(current_title)
-            texts.append(current_text.strip())
-
-    if len(titles) != len(texts):
-        print("Error: Titles and texts count mismatch. Please check the input file format.")
-        return
-
-    for title, text in zip(titles, texts):
-        chunks = split_story_into_chunks(text)
-        for j, chunk in enumerate(chunks):
-            embedding = embeddings.embed_documents([chunk])[0]
-            doc = Document(
-                page_content=chunk,
-                metadata={"title": title, "chunk_index": j}
-            )
-            vector_store.add_documents([doc])
-    print("Data upload completed.")
-
-load_and_upload_data()
-
-# Function to retrieve the entire story by title
+# Function to retrieve the full story by title
 def retrieve_story_by_title(title):
-    filter_condition = {"must": [{"key": "title", "match": {"value": title}}]}
-    chunks = vector_store.similarity_search_with_score(title, k=100, filter=filter_condition)
+    normalized_title = title.strip().lower()
+    filter_condition = {"must": [{"key": "title", "match": {"value": normalized_title}}]}
+    chunks = vector_store.similarity_search_with_score(normalized_title, k=100, filter=filter_condition)
+    if not chunks:
+        results = vector_store.similarity_search(normalized_title, k=5)
+        if results:
+            return ' '.join([result.page_content for result in results])
+        return None
     story = ' '.join(chunk.page_content for chunk, _ in chunks)
     return story
 
-# Function to retrieve the best result based on a search phrase
+# Function to retrieve the best snippet for a phrase
 def retrieve_best_match(phrase):
     results = vector_store.similarity_search_with_score(phrase, k=5)
     best_result, best_score = max(results, key=lambda item: item[1])
     return best_result.page_content
+
+# Function to generate a story from a prompt
+def generate_story_from_prompt(prompt):
+    full_prompt = (
+        f"Write a detailed and engaging story about: {prompt}. "
+        "Make it imaginative, with interesting characters, an exciting plot, and a satisfying conclusion. "
+        "Include rich descriptions and dialogue where appropriate."
+    )
+    response = qa_chain({"query": full_prompt})
+    generated_story = response["result"].strip()
+    if not generated_story or "I don't know" in generated_story.lower():
+        fallback_prompt = (
+            f"Imagine a magical or futuristic world and craft a unique story based on: {prompt}. "
+            "Include a central conflict, character growth, and a resolution."
+        )
+        response = qa_chain({"query": fallback_prompt})
+        generated_story = response["result"].strip()
+    return generated_story
 
 # Convert text to audio
 def text_to_audio(text):
@@ -111,6 +89,15 @@ def text_to_audio(text):
     tts = gTTS(text)
     tts.save(filepath)
     return filepath
+
+def audio_to_text(audio_file):
+    audio_data = audio_file.getvalue()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
+        temp_audio_file.write(audio_data)
+        temp_audio_file.close()
+        result = whisper_model.transcribe(temp_audio_file.name)
+        os.remove(temp_audio_file.name)
+        return result["text"]
 
 # Streamlit setup
 def main():
@@ -122,40 +109,37 @@ def main():
 
     # Conversational Story Query Tab
     with tab1:
-        st.header("Conversational Story Query")
+        st.markdown("### Conversational Story Query")
         search_query = st.text_input("Ask about a story, phrase, or title:")
 
         if search_query:
-            if search_query.istitle():  # If query is a title, retrieve the full story
+            if search_query.istitle():  # Full story for titles
                 story_text = retrieve_story_by_title(search_query)
                 if story_text:
-                    st.subheader("Full Story:")
-                    st.write(story_text)
+                    st.markdown("#### Full Story:")
+                    st.markdown(story_text)
                     audio_file = text_to_audio(story_text)
                     st.audio(audio_file, format="audio/mp3")
                     os.remove(audio_file)
                 else:
-                    st.write("No story found with that title.")
-
-            elif len(search_query.split()) < 6:  # Check if it might be a story phrase
+                    st.markdown("**No story found with that title.**")
+            elif len(search_query.split()) < 6:  # Specific phrase match
                 best_snippet = retrieve_best_match(search_query)
                 if best_snippet:
-                    st.subheader("Best Matching Snippet:")
-                    st.write(best_snippet)
+                    st.markdown("#### Best Matching Snippet:")
+                    st.markdown(best_snippet)
                     audio_file = text_to_audio(best_snippet)
                     st.audio(audio_file, format="audio/mp3")
                     os.remove(audio_file)
                 else:
-                    st.write("No matching content found.")
-                    
-            else:  # Otherwise, generate a conversational response for general queries
-                conversational_prompt = f"Answer this question conversationally based on the story collection: '{search_query}'."
+                    st.markdown("**No matching content found.**")
+            else:  # General conversational queries
+                conversational_prompt = f"Provide a detailed and engaging response based on the story collection for the query: '{search_query}'. Include relevant details to expand the answer."
                 st.write("Generating conversational response...")
-                response = qa_chain({"query": conversational_prompt})
-                conversational_response = response["result"].strip()
+                conversational_response = generate_story_from_prompt(conversational_prompt)
 
-                st.subheader("Conversational Response:")
-                st.write(conversational_response)
+                st.markdown("#### Conversational Response:")
+                st.markdown(conversational_response)
 
                 audio_file_path = text_to_audio(conversational_response)
                 st.audio(audio_file_path, format="audio/mp3")
@@ -165,19 +149,10 @@ def main():
     with tab2:
         st.header("Generate New Story")
         prompt = st.text_area("Enter a prompt for a new story:")
-        
         if st.button("Generate New Story"):
             if prompt:
-                full_prompt = f"Tell me a creative story about: {prompt}. Make it engaging and magical."
                 st.write("Generating story...")
-                response = qa_chain({"query": full_prompt})
-                generated_story = response["result"].strip()
-                
-                if "I don't have a specific story" in generated_story:
-                    fallback_prompt = f"Imagine a magical world and tell a story about: {prompt}."
-                    response = qa_chain({"query": fallback_prompt})
-                    generated_story = response["result"].strip()
-
+                generated_story = generate_story_from_prompt(prompt)
                 st.subheader("Generated Story:")
                 st.write(generated_story)
 
@@ -189,14 +164,14 @@ def main():
 
     # Speech-to-Text Query Tab
     with tab3:
-        st.header("Speech-to-Text Query")
+        st.markdown("### Speech-to-Text Query")
         audio_value = st.audio_input("Record a voice message")
         
         if audio_value:
             st.write("Audio recorded! Processing...")
             transcribed_text = audio_to_text(audio_value)
-            st.write("Transcribed Text:")
-            st.write(transcribed_text)
+            st.markdown("#### Transcribed Text:")
+            st.markdown(transcribed_text)
             
             story_prompt = f"Create a detailed, imaginative story set in a magical place based on the theme: '{transcribed_text}'. Include interesting characters, an exciting plot, and an engaging ending."
             st.write("Generating a new story based on transcribed text...")
@@ -208,8 +183,8 @@ def main():
                 response = qa_chain({"query": fallback_prompt})
                 generated_story = response["result"].strip()
             
-            st.subheader("Generated Story from Audio Query:")
-            st.write(generated_story)
+            st.markdown("#### Generated Story from Audio Query:")
+            st.markdown(generated_story)
 
 if __name__ == "__main__":
     main()
